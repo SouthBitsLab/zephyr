@@ -1,0 +1,56 @@
+# ICG20660L 6-Axis Motion Tracking device configuration options
+
+# Copyright (c) 2024 TDK Invensense
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig ICG20660L
+	bool "ICG20660L 6-Axis Motion Tracking Device"
+	default y
+	depends on DT_HAS_INVENSENSE_ICG20660L_ENABLED
+	select I2C
+	help
+	  Enable driver for ICG20660L I2C-based six-axis motion tracking device.
+
+if ICG20660L
+
+choice ICG20660L_TRIGGER_MODE
+	prompt "Trigger mode"
+	default ICG20660L_TRIGGER_GLOBAL_THREAD
+	help
+	  Specify the type of triggering to be used by the driver.
+
+config ICG20660L_TRIGGER_NONE
+	bool "No trigger"
+
+config ICG20660L_TRIGGER_GLOBAL_THREAD
+	bool "Use global thread"
+	depends on GPIO
+	depends on $(dt_compat_any_has_prop,$(DT_COMPAT_INVENSENSE_ICG20660L),int-gpios)
+	select ICG20660L_TRIGGER
+
+config ICG20660L_TRIGGER_OWN_THREAD
+	bool "Use own thread"
+	depends on GPIO
+	depends on $(dt_compat_any_has_prop,$(DT_COMPAT_INVENSENSE_ICG20660L),int-gpios)
+	select ICG20660L_TRIGGER
+
+endchoice
+
+config ICG20660L_TRIGGER
+	bool
+
+config ICG20660L_THREAD_PRIORITY
+	int "Thread priority"
+	depends on ICG20660L_TRIGGER_OWN_THREAD
+	default 10
+	help
+	  Priority of thread used by the driver to handle interrupts.
+
+config ICG20660L_THREAD_STACK_SIZE
+	int "Thread stack size"
+	depends on ICG20660L_TRIGGER_OWN_THREAD
+	default 1024
+	help
+	  Stack size of thread used by the driver to handle interrupts.
+
+endif # ICG20660L
