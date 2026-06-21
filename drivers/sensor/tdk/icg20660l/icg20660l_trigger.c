@@ -25,7 +25,7 @@ static void icg20660l_handle_data_ready(const struct device *dev);
 #if defined(CONFIG_ICG20660L_TRIGGER_OWN_THREAD)
 /*
  * Dedicated driver thread: waits on a semaphore posted by the GPIO callback,
- * then invokes the user-registered handler and re-enables the interrupt.
+ * then invokes the user-registered handler.
  */
 static void icg20660l_thread(void *p1, void *p2, void *p3)
 {
@@ -57,7 +57,8 @@ static void icg20660l_work_handler(struct k_work *work)
 
 /*
  * GPIO interrupt callback: the interrupt line toggled, so schedule the
- * deferred handler and temporarily disable the GPIO interrupt until it runs.
+ * deferred handler. The GPIO interrupt stays enabled; the semaphore count
+ * absorbs bursts so no edge is lost while a previous sample is processed.
  */
 static void icg20660l_gpio_callback(const struct device *port,
 				    struct gpio_callback *cb,
@@ -69,9 +70,6 @@ static void icg20660l_gpio_callback(const struct device *port,
 	ARG_UNUSED(port);
 	ARG_UNUSED(pins);
 
-	gpio_pin_interrupt_configure_dt(&drv_data->dev->config->int_gpio,
-				       GPIO_INT_DISABLE);
-
 #if defined(CONFIG_ICG20660L_TRIGGER_OWN_THREAD)
 	k_sem_give(&drv_data->gpio_sem);
 #elif defined(CONFIG_ICG20660L_TRIGGER_GLOBAL_THREAD)
@@ -80,19 +78,15 @@ static void icg20660l_gpio_callback(const struct device *port,
 }
 
 /*
- * Dispatch the registered data-ready handler and re-arm the GPIO interrupt.
+ * Dispatch the registered data-ready handler.
  */
 static void icg20660l_handle_data_ready(const struct device *dev)
 {
-	const struct icg20660l_config *cfg = dev->config;
 	struct icg20660l_data *drv_data = dev->data;
 
 	if (drv_data->data_ready_handler != NULL) {
 		drv_data->data_ready_handler(dev, drv_data->data_ready_trigger);
 	}
-
-	gpio_pin_interrupt_configure_dt(&cfg->int_gpio,
-				       GPIO_INT_EDGE_TO_ACTIVE);
 }
 
 /*

@@ -1,0 +1,49 @@
+# Copyright (c) 2021 TDK Invensense
+# SPDX-License-Identifier: Apache-2.0
+
+description: ICG20660L 6-Axis IMU
+
+compatible: "invensense,icg20660l"
+
+include: sensor-device.yaml
+
+properties:
+  reg:
+    required: true
+    description: I2C address
+
+  int-gpios:
+    type: phandle-array
+    description: |
+      GPIO pin for data ready interrupt. The pin should be configured
+      as active high.
+
+  odr:
+    type: int
+    default: 100
+    description: |
+      Output data rate in Hz for both accelerometer and gyroscope.
+      The value is rounded to the nearest rate achievable by the 8-bit
+      SMPLRT_DIV divider: 1000/n Hz where n = 1..256 (1000 Hz down to ~3.91 Hz).
+
+  accel-fs:
+    type: int
+    default: 0
+    enum:
+      - 0  # 2g
+      - 8  # 4g
+      - 16 # 8g
+      - 24 # 16g
+    description: Accelerometer full scale in g
+
+  gyro-fs:
+    type: int
+    default: 0
+    enum:
+      - 0  # ±125 dps
+      - 8  # ±250 dps
+      - 16 # ±500 dps
+    description: |
+      Gyroscope full-scale selection. These are raw register values written to
+      GYRO_CONFIG[4:3] (i.e., FS_SEL << 3). 0 selects ±125 dps, 8 selects
+      ±250 dps, and 16 selects ±500 dps.

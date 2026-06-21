@@ -67,6 +67,7 @@ struct icg20660l_config {
 	struct i2c_dt_spec i2c;
 	uint16_t accel_fs;
 	uint16_t gyro_fs;
+	uint16_t hz;
 
 #ifdef CONFIG_ICG20660L_TRIGGER
 	struct gpio_dt_spec int_gpio;

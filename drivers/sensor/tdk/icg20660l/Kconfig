@@ -49,8 +49,9 @@ config ICG20660L_THREAD_PRIORITY
 config ICG20660L_THREAD_STACK_SIZE
 	int "Thread stack size"
 	depends on ICG20660L_TRIGGER_OWN_THREAD
-	default 1024
+	default 2048
 	help
 	  Stack size of thread used by the driver to handle interrupts.
+	  Increase this if the driver is used at high output data rates.
 
 endif # ICG20660L

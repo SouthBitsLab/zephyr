@@ -254,23 +254,46 @@ static int icg20660l_gyro_set_fs(const struct device *dev, uint32_t fs_dps)
 
 /*
  * Set the output data rate for both accel and gyro via SMPLRT_DIV.
+ *
  * The divider only takes effect when DLPF_CFG is between 1 and 6; the init
  * sequence already sets DLPF_CFG=1 for a 1 kHz internal rate.
- *   ODR = 1000 / (1 + SMPLRT_DIV) Hz
+ * The 8-bit divider d = SMPLRT_DIV + 1 produces ODR = 1000 / d Hz, so the
+ * achievable rates are 1000/1, 1000/2, ..., 1000/256 Hz (1000 Hz down to ~3.91 Hz).
+ * Requests are rounded to the nearest achievable rate.
  */
 static int icg20660l_set_odr(const struct device *dev, uint16_t hz)
 {
 	const struct icg20660l_config *cfg = dev->config;
 	struct icg20660l_data *drv_data = dev->data;
+	uint16_t best_divider = 1U;
+	uint32_t best_diff = UINT32_MAX;
+	uint16_t actual_hz;
 	uint8_t smplrt_div;
 	int ret;
 
-	/* Allowed ODR range with DLPF_CFG=1 is 4 Hz to 1000 Hz. */
-	if (hz < 4U || hz > 1000U) {
-		return -EINVAL;
+	/* Clamp to the achievable range: ~3.91 Hz to 1000 Hz. */
+	if (hz < 4U) {
+		hz = 4U;
+	} else if (hz > 1000U) {
+		hz = 1000U;
 	}
 
-	smplrt_div = (1000U / hz) - 1U;
+	/*
+	 * Find the divider d in [1, 256] that minimizes |hz - 1000/d|.
+	 * Compare |hz*d - 1000|/d; cross-multiply to stay in integer arithmetic.
+	 */
+	for (uint16_t d = 1U; d <= 256U; d++) {
+		uint32_t num = (uint32_t)hz * d;
+		uint32_t diff = (num > 1000U) ? (num - 1000U) : (1000U - num);
+
+		if (diff * best_divider < best_diff * d) {
+			best_diff = diff;
+			best_divider = d;
+		}
+	}
+
+	actual_hz = 1000U / best_divider;
+	smplrt_div = (uint8_t)(best_divider - 1U);
 
 	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_SMPLRT_DIV, smplrt_div);
 	if (ret < 0) {
@@ -278,8 +301,13 @@ static int icg20660l_set_odr(const struct device *dev, uint16_t hz)
 		return ret;
 	}
 
-	drv_data->accel_hz = hz;
-	drv_data->gyro_hz = hz;
+	if (actual_hz != hz) {
+		LOG_WRN("Requested ODR %u Hz rounded to nearest supported %u Hz",
+			hz, actual_hz);
+	}
+
+	drv_data->accel_hz = actual_hz;
+	drv_data->gyro_hz = actual_hz;
 
 	return 0;
 }
@@ -422,15 +450,12 @@ static int icg20660l_reset(const struct device *dev)
 }
 
 /*
- * Enable the digital low-pass filter and set a default sample rate.
- *
- * DLPF_CFG=1 gives a 1 kHz internal sample rate for both accel and gyro,
- * allowing SMPLRT_DIV to control the final ODR. SMPLRT_DIV=9 yields 100 Hz.
+ * Enable the digital low-pass filter. DLPF_CFG=1 gives a 1 kHz internal sample
+ * rate for both accel and gyro, allowing SMPLRT_DIV to control the final ODR.
  */
-static int icg20660l_set_default_odr(const struct device *dev)
+static int icg20660l_set_dlpf(const struct device *dev)
 {
 	const struct icg20660l_config *cfg = dev->config;
-	struct icg20660l_data *drv_data = dev->data;
 	int ret;
 
 	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_CONFIG, ICG20660L_DLPF_CFG_1);
@@ -440,20 +465,11 @@ static int icg20660l_set_default_odr(const struct device *dev)
 	}
 
 	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_ACCEL_CONFIG2,
-				ICG20660L_ACCEL_DLPF_CFG_1);
+					ICG20660L_ACCEL_DLPF_CFG_1);
 	if (ret < 0) {
 		LOG_ERR("Failed to write ACCEL_CONFIG2: %d", ret);
 		return ret;
 	}
-
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_SMPLRT_DIV, 9);
-	if (ret < 0) {
-		LOG_ERR("Failed to write SMPLRT_DIV: %d", ret);
-		return ret;
-	}
-
-	drv_data->accel_hz = 100;
-	drv_data->gyro_hz = 100;
 
 	return 0;
 }
@@ -494,8 +510,13 @@ static int icg20660l_init(const struct device *dev)
 		return ret;
 	}
 
-	/* Set a sensible default ODR so sample_fetch returns fresh data. */
-	ret = icg20660l_set_default_odr(dev);
+	/* Enable DLPF so SMPLRT_DIV controls the output data rate. */
+	ret = icg20660l_set_dlpf(dev);
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = icg20660l_set_odr(dev, cfg->hz);
 	if (ret < 0) {
 		return ret;
 	}
@@ -533,6 +554,7 @@ static DEVICE_API(sensor, icg20660l_driver_api) = {
 		.i2c = I2C_DT_SPEC_INST_GET(inst),				\
 		.accel_fs = 2U << DT_INST_ENUM_IDX(inst, accel_fs),		\
 		.gyro_fs = 125U << DT_INST_ENUM_IDX(inst, gyro_fs),		\
+		.hz = DT_INST_PROP_OR(inst, odr, 100),				\
 		IF_ENABLED(CONFIG_ICG20660L_TRIGGER,				\
 			   (.int_gpio = GPIO_DT_SPEC_INST_GET_OR(inst, int_gpios, {0}),)) \
 	}
