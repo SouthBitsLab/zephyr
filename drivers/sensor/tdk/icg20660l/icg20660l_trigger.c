@@ -6,7 +6,6 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -153,7 +152,7 @@ int icg20660l_init_interrupt(const struct device *dev)
 	}
 
 	/* Enable the data-ready interrupt output from the sensor. */
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_INT_ENABLE,
+	ret = icg20660l_bus_write(dev, ICG20660L_REG_INT_ENABLE,
 				ICG20660L_INT_ENABLE_DATA_RDY);
 	if (ret < 0) {
 		LOG_ERR("Failed to enable data-ready interrupt: %d", ret);

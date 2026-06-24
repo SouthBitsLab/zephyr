@@ -4,9 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT invensense_icg20660l
-
-#include <zephyr/drivers/i2c.h>
 #include <zephyr/init.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/drivers/sensor.h>
@@ -141,7 +138,6 @@ static int icg20660l_sample_fetch(const struct device *dev,
 				  enum sensor_channel chan)
 {
 	struct icg20660l_data *drv_data = dev->data;
-	const struct icg20660l_config *cfg = dev->config;
 	uint8_t buf[14];
 	int ret;
 
@@ -151,7 +147,7 @@ static int icg20660l_sample_fetch(const struct device *dev,
 	 *   accel_x, accel_y, accel_z, temp, gyro_x, gyro_y, gyro_z
 	 * Each quantity is a big-endian signed 16-bit value.
 	 */
-	ret = i2c_burst_read_dt(&cfg->i2c, ICG20660L_REG_ACCEL_XOUT_H, buf, sizeof(buf));
+	ret = icg20660l_bus_read(dev, ICG20660L_REG_ACCEL_XOUT_H, buf, sizeof(buf));
 	if (ret < 0) {
 		LOG_ERR("Failed to read sensor data: %d", ret);
 		return ret;
@@ -175,7 +171,6 @@ static int icg20660l_sample_fetch(const struct device *dev,
 static int icg20660l_accel_set_fs(const struct device *dev, uint32_t fs_g)
 {
 	struct icg20660l_data *drv_data = dev->data;
-	const struct icg20660l_config *cfg = dev->config;
 	uint8_t fs_sel;
 	uint8_t reg;
 	int ret;
@@ -202,10 +197,22 @@ static int icg20660l_accel_set_fs(const struct device *dev, uint32_t fs_g)
 	 * LSB/g is 2^(14 - fs_sel), so store the exponent for later conversion.
 	 */
 	reg = fs_sel << ICG20660L_ACCEL_FS_SHIFT;
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_ACCEL_CONFIG, reg);
+	ret = icg20660l_bus_write(dev, ICG20660L_REG_ACCEL_CONFIG, reg);
 	if (ret < 0) {
 		LOG_ERR("Failed to write accel full scale: %d", ret);
 		return ret;
+	}
+
+	/* Verify the write took effect; otherwise scale is wrong. */
+	ret = icg20660l_bus_read(dev, ICG20660L_REG_ACCEL_CONFIG, &reg, 1);
+	if (ret < 0) {
+		LOG_ERR("Failed to read back accel full scale: %d", ret);
+		return ret;
+	}
+	if (((reg >> ICG20660L_ACCEL_FS_SHIFT) & 0x3U) != fs_sel) {
+		LOG_ERR("Accel full scale read-back mismatch: wrote %u, got %u",
+			fs_sel, (reg >> ICG20660L_ACCEL_FS_SHIFT) & 0x3U);
+		return -EIO;
 	}
 
 	drv_data->accel_sensitivity_shift = 14 - fs_sel;
@@ -220,7 +227,6 @@ static int icg20660l_accel_set_fs(const struct device *dev, uint32_t fs_g)
 static int icg20660l_gyro_set_fs(const struct device *dev, uint32_t fs_dps)
 {
 	struct icg20660l_data *drv_data = dev->data;
-	const struct icg20660l_config *cfg = dev->config;
 	uint8_t fs_sel;
 	uint8_t reg;
 	int ret;
@@ -241,10 +247,22 @@ static int icg20660l_gyro_set_fs(const struct device *dev, uint32_t fs_dps)
 
 	/* GYRO_FS_SEL occupies bits [4:3] of GYRO_CONFIG. */
 	reg = fs_sel << ICG20660L_GYRO_FS_SHIFT;
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_GYRO_CONFIG, reg);
+	ret = icg20660l_bus_write(dev, ICG20660L_REG_GYRO_CONFIG, reg);
 	if (ret < 0) {
 		LOG_ERR("Failed to write gyro full scale: %d", ret);
 		return ret;
+	}
+
+	/* Verify the write took effect; otherwise scale is wrong. */
+	ret = icg20660l_bus_read(dev, ICG20660L_REG_GYRO_CONFIG, &reg, 1);
+	if (ret < 0) {
+		LOG_ERR("Failed to read back gyro full scale: %d", ret);
+		return ret;
+	}
+	if (((reg >> ICG20660L_GYRO_FS_SHIFT) & 0x3U) != fs_sel) {
+		LOG_ERR("Gyro full scale read-back mismatch: wrote %u, got %u",
+			fs_sel, (reg >> ICG20660L_GYRO_FS_SHIFT) & 0x3U);
+		return -EIO;
 	}
 
 	drv_data->gyro_sensitivity_x10 = icg20660l_gyro_sensitivity_x10[fs_sel];
@@ -263,7 +281,6 @@ static int icg20660l_gyro_set_fs(const struct device *dev, uint32_t fs_dps)
  */
 static int icg20660l_set_odr(const struct device *dev, uint16_t hz)
 {
-	const struct icg20660l_config *cfg = dev->config;
 	struct icg20660l_data *drv_data = dev->data;
 	uint16_t best_divider = 1U;
 	uint32_t best_diff = UINT32_MAX;
@@ -295,7 +312,7 @@ static int icg20660l_set_odr(const struct device *dev, uint16_t hz)
 	actual_hz = 1000U / best_divider;
 	smplrt_div = (uint8_t)(best_divider - 1U);
 
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_SMPLRT_DIV, smplrt_div);
+	ret = icg20660l_bus_write(dev, ICG20660L_REG_SMPLRT_DIV, smplrt_div);
 	if (ret < 0) {
 		LOG_ERR("Failed to write sample rate divider: %d", ret);
 		return ret;
@@ -396,11 +413,10 @@ static int icg20660l_attr_get(const struct device *dev,
  */
 static int icg20660l_check_chip_id(const struct device *dev)
 {
-	const struct icg20660l_config *cfg = dev->config;
 	uint8_t id;
 	int ret;
 
-	ret = i2c_reg_read_byte_dt(&cfg->i2c, ICG20660L_REG_WHO_AM_I, &id);
+	ret = icg20660l_bus_read(dev, ICG20660L_REG_WHO_AM_I, &id, 1);
 	if (ret < 0) {
 		LOG_ERR("Failed to read WHO_AM_I: %d", ret);
 		return ret;
@@ -419,16 +435,16 @@ static int icg20660l_check_chip_id(const struct device *dev)
 /*
  * Reset the sensor and select the best clock source.
  *
- * The datasheet requires a soft reset (write 0x81 to PWR_MGMT_1) after
- * power-up. Bit 7 starts the reset and self-clears. CLKSEL=1 selects the
- * best available clock source (PLL if ready, otherwise internal oscillator).
+ * The datasheet requires a soft reset (write 0x80 to PWR_MGMT_1) after
+ * power-up. Bit 7 starts the reset and self-clears. After reset completes,
+ * writing CLKSEL=1 selects the best available clock source (PLL if ready,
+ * otherwise internal oscillator).
  */
 static int icg20660l_reset(const struct device *dev)
 {
-	const struct icg20660l_config *cfg = dev->config;
 	int ret;
 
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_PWR_MGMT_1,
+	ret = icg20660l_bus_write(dev, ICG20660L_REG_PWR_MGMT_1,
 				ICG20660L_PWR_MGMT_1_DEVICE_RESET |
 					ICG20660L_PWR_MGMT_1_CLKSEL_1);
 	if (ret < 0) {
@@ -436,10 +452,14 @@ static int icg20660l_reset(const struct device *dev)
 		return ret;
 	}
 
-	k_msleep(10);
+	/*
+	 * The datasheet requires a delay after reset before the device accepts
+	 * further register writes. 100 ms is the conservative maximum.
+	 */
+	k_msleep(100);
 
 	/* Keep CLKSEL=1 and make sure SLEEP is cleared. */
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_PWR_MGMT_1,
+	ret = icg20660l_bus_write(dev, ICG20660L_REG_PWR_MGMT_1,
 				ICG20660L_PWR_MGMT_1_CLKSEL_1);
 	if (ret < 0) {
 		LOG_ERR("Failed to wake device: %d", ret);
@@ -455,17 +475,16 @@ static int icg20660l_reset(const struct device *dev)
  */
 static int icg20660l_set_dlpf(const struct device *dev)
 {
-	const struct icg20660l_config *cfg = dev->config;
 	int ret;
 
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_CONFIG, ICG20660L_DLPF_CFG_1);
+	ret = icg20660l_bus_write(dev, ICG20660L_REG_CONFIG, ICG20660L_DLPF_CFG_1);
 	if (ret < 0) {
 		LOG_ERR("Failed to write CONFIG: %d", ret);
 		return ret;
 	}
 
-	ret = i2c_reg_write_byte_dt(&cfg->i2c, ICG20660L_REG_ACCEL_CONFIG2,
-					ICG20660L_ACCEL_DLPF_CFG_1);
+	ret = icg20660l_bus_write(dev, ICG20660L_REG_ACCEL_CONFIG2,
+				  ICG20660L_ACCEL_DLPF_CFG_1);
 	if (ret < 0) {
 		LOG_ERR("Failed to write ACCEL_CONFIG2: %d", ret);
 		return ret;
@@ -479,9 +498,10 @@ static int icg20660l_init(const struct device *dev)
 	const struct icg20660l_config *cfg = dev->config;
 	int ret;
 
-	if (!device_is_ready(cfg->i2c.bus)) {
-		LOG_ERR("I2C bus is not ready");
-		return -ENODEV;
+	ret = icg20660l_bus_check(dev);
+	if (ret < 0) {
+		LOG_ERR("Bus is not ready");
+		return ret;
 	}
 
 	/* Verify the chip identity before configuring it. */
@@ -494,6 +514,18 @@ static int icg20660l_init(const struct device *dev)
 	ret = icg20660l_reset(dev);
 	if (ret < 0) {
 		return ret;
+	}
+
+	/*
+	 * For SPI devices, disable the I2C interface so that subsequent register
+	 * writes are accepted over SPI.
+	 */
+	if (cfg->bus_io->configure != NULL) {
+		ret = cfg->bus_io->configure(dev);
+		if (ret < 0) {
+			LOG_ERR("Failed to configure bus: %d", ret);
+			return ret;
+		}
 	}
 
 	/* Configure accelerometer full scale from the device tree. */
@@ -544,18 +576,31 @@ static DEVICE_API(sensor, icg20660l_driver_api) = {
 	.attr_get = icg20660l_attr_get,
 };
 
+#define ICG20660L_CONFIG_SPI(inst)					\
+	.bus.spi = SPI_DT_SPEC_INST_GET(inst, ICG20660L_SPI_OPERATION, 0),	\
+	.bus_io = &icg20660l_bus_io_spi,
+
+#define ICG20660L_CONFIG_I2C(inst)					\
+	.bus.i2c = I2C_DT_SPEC_INST_GET(inst),				\
+	.bus_io = &icg20660l_bus_io_i2c,
+
+#define ICG20660L_BUS_CFG(inst)						\
+	COND_CODE_1(DT_INST_ON_BUS(inst, i2c),				\
+		    (ICG20660L_CONFIG_I2C(inst)),			\
+		    (ICG20660L_CONFIG_SPI(inst)))
+
 /*
  * Per-instance configuration macro. The accel-fs and gyro-fs device tree
  * properties use raw register shift values, so use DT_INST_ENUM_IDX to obtain
  * the FS_SEL index directly.
  */
-#define ICG20660L_DEFINE_CONFIG(inst)						\
+#define ICG20660L_DEFINE_CONFIG(inst)					\
 	static const struct icg20660l_config icg20660l_cfg_##inst = {	\
-		.i2c = I2C_DT_SPEC_INST_GET(inst),				\
-		.accel_fs = 2U << DT_INST_ENUM_IDX(inst, accel_fs),		\
-		.gyro_fs = 125U << DT_INST_ENUM_IDX(inst, gyro_fs),		\
-		.hz = DT_INST_PROP_OR(inst, odr, 100),				\
-		IF_ENABLED(CONFIG_ICG20660L_TRIGGER,				\
+		ICG20660L_BUS_CFG(inst)					\
+		.accel_fs = 2U << DT_INST_ENUM_IDX(inst, accel_fs),	\
+		.gyro_fs = 125U << DT_INST_ENUM_IDX(inst, gyro_fs),	\
+		.hz = DT_INST_PROP_OR(inst, odr, 100),			\
+		IF_ENABLED(CONFIG_ICG20660L_TRIGGER,			\
 			   (.int_gpio = GPIO_DT_SPEC_INST_GET_OR(inst, int_gpios, {0}),)) \
 	}
 

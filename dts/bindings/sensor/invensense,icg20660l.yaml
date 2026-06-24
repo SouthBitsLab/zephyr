@@ -8,10 +8,6 @@ compatible: "invensense,icg20660l"
 include: sensor-device.yaml
 
 properties:
-  reg:
-    required: true
-    description: I2C address
-
   int-gpios:
     type: phandle-array
     description: |
@@ -34,7 +30,10 @@ properties:
       - 8  # 4g
       - 16 # 8g
       - 24 # 16g
-    description: Accelerometer full scale in g
+    description: |
+      Accelerometer full-scale selection. These are raw register values written
+      to ACCEL_CONFIG[4:3] (i.e., FS_SEL << 3). 0 selects ±2g, 8 selects ±4g,
+      16 selects ±8g, and 24 selects ±16g.
 
   gyro-fs:
     type: int

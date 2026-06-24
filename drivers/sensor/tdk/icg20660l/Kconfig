@@ -7,9 +7,10 @@ menuconfig ICG20660L
 	bool "ICG20660L 6-Axis Motion Tracking Device"
 	default y
 	depends on DT_HAS_INVENSENSE_ICG20660L_ENABLED
-	select I2C
+	select I2C if $(dt_compat_on_bus,$(DT_COMPAT_INVENSENSE_ICG20660L),i2c)
+	select SPI if $(dt_compat_on_bus,$(DT_COMPAT_INVENSENSE_ICG20660L),spi)
 	help
-	  Enable driver for ICG20660L I2C-based six-axis motion tracking device.
+	  Enable driver for ICG20660L six-axis motion tracking device.
 
 if ICG20660L
 

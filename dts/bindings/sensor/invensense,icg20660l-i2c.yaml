@@ -1,0 +1,8 @@
+# Copyright (c) 2024 TDK Invensense
+# SPDX-License-Identifier: Apache-2.0
+
+description: ICG20660L 6-Axis IMU accessed through I2C bus
+
+compatible: "invensense,icg20660l"
+
+include: [i2c-device.yaml, "invensense,icg20660l.yaml"]

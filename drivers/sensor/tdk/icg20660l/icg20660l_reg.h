@@ -99,6 +99,7 @@
 
 /* User control: FIFO enable/reset, I2C disable, signal conditioning reset. */
 #define ICG20660L_REG_USER_CTRL		0x6A
+#define ICG20660L_USER_CTRL_I2C_IF_DIS		BIT(4)
 
 /* Power management 1:
  * [7] DEVICE_RESET
