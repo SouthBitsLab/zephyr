@@ -1,0 +1,47 @@
+# Copyright 2025 SouthBitsLab
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  DFRobot Gravity GNSSAndRTC module (GNSS-only).
+
+  This binding exposes the L76K GNSS data produced by the onboard MCU over I2C.
+  The RTC portion of the module is not used by this driver.
+
+  Example configuration:
+
+  &i2c1 {
+          clock-frequency = <I2C_BITRATE_FAST>;
+
+          gnss: gnss-and-rtc@66 {
+                  compatible = "dfrobot,gnss-and-rtc";
+                  reg = <0x66>;
+                  gnss-mode = <7>;
+                  poll-interval-ms = <1000>;
+          };
+  };
+
+compatible: "dfrobot,gnss-and-rtc"
+
+include:
+  - i2c-device.yaml
+
+properties:
+  gnss-mode:
+    type: int
+    default: 7
+    enum:
+      - 1  # GPS
+      - 2  # BeiDou
+      - 3  # GPS + BeiDou
+      - 4  # GLONASS
+      - 5  # GPS + GLONASS
+      - 6  # BeiDou + GLONASS
+      - 7  # GPS + BeiDou + GLONASS
+    description: |
+      GNSS constellation mode written to REG_GNSS_MODE.
+
+  poll-interval-ms:
+    type: int
+    default: 1000
+    description: |
+      Interval in milliseconds between polling the module's parsed GNSS registers.

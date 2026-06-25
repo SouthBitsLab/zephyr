@@ -1,0 +1,14 @@
+# Copyright 2025 SouthBitsLab
+# SPDX-License-Identifier: Apache-2.0
+
+config GNSS_DFROBOT_GNSS_AND_RTC
+	bool "DFRobot GNSSAndRTC GNSS-only driver"
+	default y
+	depends on GNSS
+	depends on DT_HAS_DFROBOT_GNSS_AND_RTC_ENABLED
+	depends on GNSS_REFERENCE_FRAME_WGS84
+	select I2C
+	help
+	  Enable the GNSS-only driver for the DFRobot Gravity GNSSAndRTC module.
+	  The driver reads parsed L76K GNSS data over I2C and publishes it through
+	  the Zephyr GNSS subsystem. The RTC portion of the module is not used.
